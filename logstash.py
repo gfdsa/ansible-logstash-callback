@@ -49,6 +49,15 @@ DOCUMENTATION = '''
         env:
           - name: LOGSTASH_TYPE
         default: ansible
+      protocol:
+        description: Protocol (TCP/UDP) logstash listener is configured with
+        ini:
+          - section: callback_logstash
+            key: type
+        env:
+          - name: LOGSTASH_PROTOCOL
+        default: TCP
+
 '''
 
 EXAMPLES = '''
@@ -67,6 +76,7 @@ examples: >
         export LOGSTASH_PORT=5000
         export LOGSTASH_PRE_COMMAND="git rev-parse HEAD"
         export LOGSTASH_TYPE=ansible
+        export LOGSTASH_PROTOCOL=UDP
 
     or same in ansible.cfg:
         [callback_logstash]
@@ -83,6 +93,13 @@ examples: >
                     codec => json
                 }
             }
+        or with UDP:
+           input {
+               udp {
+                   port => 5000
+                   codec => json
+               }
+           }
 '''
 
 import os
@@ -123,12 +140,23 @@ class CallbackModule(CallbackBase):
             self.logger = logging.getLogger('python-logstash-logger')
             self.logger.setLevel(logging.DEBUG)
 
-            self.handler = logstash.TCPLogstashHandler(
-                self.ls_server,
-                self.ls_port,
-                version=1,
-                message_type=self.ls_type
-            )
+            if self.ls_protocol == 'TCP':
+                self.handler = logstash.TCPLogstashHandler(
+                    self.ls_server,
+                    self.ls_port,
+                    version=1,
+                    message_type=self.ls_type
+                )
+            elif self.ls_protocol == 'UDP':
+                self.handler = logstash.LogstashHandler(
+                    self.ls_server,
+                    self.ls_port,
+                    version=1,
+                    message_type=self.ls_type
+                )
+            else:
+                self.disabled = True
+                self._display.warning("Unsupported value [%s] for logstash protocol. TCP or UDP are supported.")
 
             self.logger.addHandler(self.handler)
             self.hostname = socket.gethostname()
@@ -162,6 +190,12 @@ class CallbackModule(CallbackBase):
             self.ls_port = int(self.get_option('port'))
         except KeyError:
             self.ls_port = 5000
+
+        try:
+            self.ls_protocol = self.get_option('protocol')
+        except KeyError:
+            self.ls_protocol = "TCP"
+
 
         try:
             self.ls_type = self.get_option('type')
